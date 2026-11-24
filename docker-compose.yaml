@@ -1,0 +1,109 @@
+services:
+  goapp:
+    build:
+      context: .
+      args:
+        SERVICE: walletcore
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+
+  balances:
+    build:
+      context: .
+      args:
+        SERVICE: balances
+    environment:
+      BALANCES_DSN: balances:balances@tcp(balances-db:3306)/balances?timeout=5s&readTimeout=5s&writeTimeout=5s
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      balances-db:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      - "3003:3003"
+    restart: on-failure
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: wallet
+      MYSQL_USER: wallet
+      MYSQL_PASSWORD: wallet
+    volumes:
+      - wallet-data:/var/lib/mysql
+      - ./sql/wallet:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysql", "-h127.0.0.1", "-uwallet", "-pwallet", "wallet", "-e", "SELECT 1 FROM accounts LIMIT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  balances-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: balances
+      MYSQL_USER: balances
+      MYSQL_PASSWORD: balances
+    volumes:
+      - balances-data:/var/lib/mysql
+      - ./sql/balances:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysql", "-h127.0.0.1", "-ubalances", "-pbalances", "balances", "-e", "SELECT 1 FROM balances LIMIT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:6.1.0
+    platform: linux/amd64
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+
+  kafka:
+    restart: on-failure
+    image: confluentinc/cp-kafka:6.1.0
+    platform: linux/amd64
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  kafka-init:
+    image: confluentinc/cp-kafka:6.1.0
+    platform: linux/amd64
+    depends_on:
+      - kafka
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        cub kafka-ready -b kafka:29092 1 120
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic transactions --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic balances --partitions 1 --replication-factor 1
+
+volumes:
+  wallet-data:
+  balances-data:
+  kafka-data:
+  zookeeper-data:
+  zookeeper-log:

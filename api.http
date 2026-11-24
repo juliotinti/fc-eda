@@ -1,0 +1,29 @@
+@wallet = http://localhost:8080
+@balances = http://localhost:3003
+@ana = f8df753c-3b58-43aa-8016-12aaa4f1ea3e
+@bruno = 0216ea38-524f-4e85-8743-d484a8f7538e
+
+### Ana (inicial: 1000)
+GET {{balances}}/balances/{{ana}}
+
+### Bruno (inicial: 250)
+GET {{balances}}/balances/{{bruno}}
+
+### Transferir 10 de Ana para Bruno
+POST {{wallet}}/transactions
+Content-Type: application/json
+
+{
+    "account_id_from": "{{ana}}",
+    "account_id_to": "{{bruno}}",
+    "amount": 10
+}
+
+### Ana depois da primeira transferência (990)
+GET {{balances}}/balances/{{ana}}
+
+### Bruno depois da primeira transferência (260)
+GET {{balances}}/balances/{{bruno}}
+
+### Conta desconhecida (404)
+GET {{balances}}/balances/00000000-0000-4000-8000-000000000000
